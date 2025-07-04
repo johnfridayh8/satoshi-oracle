@@ -246,3 +246,61 @@
     )
   )
 )
+
+;; ADMINISTRATIVE FUNCTIONS
+
+;; Updates the oracle address for price feeds
+(define-public (update-oracle (new-oracle principal))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-OWNER-ONLY)
+    
+    ;; Security validations
+    (asserts! (not (is-eq new-oracle CONTRACT-OWNER)) ERR-INVALID-PARAMETER)
+    (asserts! (not (is-eq new-oracle (as-contract tx-sender)))
+      ERR-INVALID-PARAMETER
+    )
+    (ok (var-set oracle-address new-oracle))
+  )
+)
+
+;; Adjusts minimum stake requirement
+(define-public (adjust-minimum-stake (new-minimum uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-OWNER-ONLY)
+    (asserts! (> new-minimum u0) ERR-INVALID-PARAMETER)
+    (ok (var-set minimum-stake new-minimum))
+  )
+)
+
+;; READ-ONLY FUNCTIONS
+
+;; Retrieves complete market information
+(define-read-only (get-market-data (market-id uint))
+  (map-get? markets market-id)
+)
+
+;; Retrieves user position information
+(define-read-only (get-user-position
+    (market-id uint)
+    (user principal)
+  )
+  (map-get? positions {
+    market: market-id,
+    participant: user,
+  })
+)
+
+;; Returns current contract balance
+(define-read-only (get-contract-balance)
+  (stx-get-balance (as-contract tx-sender))
+)
+
+;; Returns current protocol configuration
+(define-read-only (get-protocol-config)
+  {
+    oracle: (var-get oracle-address),
+    minimum-stake: (var-get minimum-stake),
+    protocol-fee: (var-get protocol-fee),
+    total-markets: (var-get market-counter),
+  }
+)
