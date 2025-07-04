@@ -68,3 +68,96 @@
     claimed: bool,               ;; Reward claim status
   }
 )
+
+;; MARKET CREATION & MANAGEMENT
+
+;; Creates a new Bitcoin price prediction market
+(define-public (create-market
+    (opening-price uint)
+    (activation-block uint)
+    (expiration-block uint)
+  )
+  (let ((new-market-id (var-get market-counter)))
+    ;; Authorization check
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-OWNER-ONLY)
+    
+    ;; Parameter validation
+    (asserts! (> expiration-block activation-block) ERR-INVALID-PARAMETER)
+    (asserts! (> opening-price u0) ERR-INVALID-PARAMETER)
+    
+    ;; Initialize new market
+    (map-set markets new-market-id {
+      opening-price: opening-price,
+      closing-price: u0,
+      bull-commitment: u0,
+      bear-commitment: u0,
+      activation-block: activation-block,
+      expiration-block: expiration-block,
+      resolution-status: false,
+    })
+    
+    ;; Increment market counter
+    (var-set market-counter (+ new-market-id u1))
+    (ok new-market-id)
+  )
+)
+
+;; MARKET PARTICIPATION
+
+;; Allows users to take positions on Bitcoin price direction
+(define-public (take-position
+    (market-id uint)
+    (position (string-ascii 4))
+    (stake uint)
+  )
+  (let (
+      (market (unwrap! (map-get? markets market-id) ERR-NOT-FOUND))
+      (current-block stacks-block-height)
+    )
+    ;; Market timing validation
+    (asserts!
+      (and
+        (>= current-block (get activation-block market))
+        (< current-block (get expiration-block market))
+      )
+      ERR-MARKET-CLOSED
+    )
+    
+    ;; Position validation
+    (asserts! (or (is-eq position "bull") (is-eq position "bear"))
+      ERR-INVALID-PREDICTION
+    )
+    (asserts! (>= stake (var-get minimum-stake)) ERR-INVALID-PARAMETER)
+    
+    ;; Balance verification
+    (asserts! (<= stake (stx-get-balance tx-sender)) ERR-INSUFFICIENT-BALANCE)
+    
+    ;; Transfer stake to contract
+    (try! (stx-transfer? stake tx-sender (as-contract tx-sender)))
+    
+    ;; Record user position
+    (map-set positions {
+      market: market-id,
+      participant: tx-sender,
+    } {
+      direction: position,
+      amount: stake,
+      claimed: false,
+    })
+    
+    ;; Update market commitments
+    (map-set markets market-id
+      (merge market {
+        bull-commitment: (if (is-eq position "bull")
+          (+ (get bull-commitment market) stake)
+          (get bull-commitment market)
+        ),
+        bear-commitment: (if (is-eq position "bear")
+          (+ (get bear-commitment market) stake)
+          (get bear-commitment market)
+        ),
+      })
+    )
+    (ok true)
+  )
+)
